@@ -3,7 +3,7 @@ import numpy as np
 import torch 
 import torch.nn as nn
 from torch.distributions import Normal
-from PythonCode.LoadingEnv import CustomEnv
+from LoadingEnv import CustomEnv
 from mlagents_envs.environment import UnityEnvironment
 import gym
 from mlagents_envs.side_channel.engine_configuration_channel import EngineConfigurationChannel
