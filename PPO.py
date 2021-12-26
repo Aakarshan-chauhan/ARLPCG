@@ -5,11 +5,10 @@ import torch.nn as nn
 from torch.distributions import Normal
 from LoadingEnv import CustomEnv
 from mlagents_envs.environment import UnityEnvironment
-import gym
 from mlagents_envs.side_channel.engine_configuration_channel import EngineConfigurationChannel
 import wandb
 
-
+# The Agent containing the actor and the critic networks
 class Agent(nn.Module):
     def __init__(self, observation_shape, action_shape, learning_rate = 0.0003):
         super(Agent, self).__init__()
@@ -23,6 +22,8 @@ class Agent(nn.Module):
             nn.Tanh(),
             nn.Linear(32, self.action_dims)
         )
+
+        # for continuous actions
         self.actor_logstd = nn.Parameter(torch.zeros(1, self.action_dims))
 
         self.critic = nn.Sequential(
@@ -37,7 +38,7 @@ class Agent(nn.Module):
 
     def get_values(self, observations):
         assert isinstance(observations, torch.Tensor)
-        assert len(observations.shape) >1
+        assert len(observations.shape) > 1
         return self.critic(observations)
 
     def get_actions_and_values(self, observations, actions = None):
@@ -45,6 +46,7 @@ class Agent(nn.Module):
         log_stds = self.actor_logstd.expand_as(means)
         stds = torch.exp(log_stds)
 
+        # Sample continuous actions from a normal distribution
         dist = Normal(means, stds)
         if actions is None:
             actions = dist.sample()
@@ -52,7 +54,7 @@ class Agent(nn.Module):
         return actions, dist.log_prob(actions).sum(1), dist.entropy().sum(1), self.get_values(observations)
 
 
-
+# Generalized advantage estimates 
 def get_gae():
     next_value = agent.get_values(next_obs).reshape(1, -1)
     advantages = torch.zeros_like(rewards)
@@ -68,9 +70,9 @@ def get_gae():
         advantages[t] = lastgaelam = delta + gamma * lamda * lastgaelam * nextnonterminal
 
     returns = advantages + values
-
     return returns, advantages
 
+# update the network weights
 def update():
     binds = np.arange(buffer_size)
     np.random.shuffle(binds)
@@ -111,6 +113,8 @@ def update():
 import tqdm
 
 if __name__=="__main__":
+
+    # Initialize the constants and coefficients
     closs_coeff = 0.5
     eloss_coeff = 0.2
     clip = 0.2
@@ -129,7 +133,8 @@ if __name__=="__main__":
 
     print("Opening ENV")
 
-    gym_id = r"D:\My C and Python Projects\2021\UnityStuff\MiniProject\Build_A NoRT DummyGen\env"
+    # Location of the environment
+    gym_id = r".\env"
     uenv = UnityEnvironment(gym_id, side_channels = [sc])
 
     cenv = CustomEnv(uenv)
@@ -152,7 +157,9 @@ if __name__=="__main__":
     for n in range(total_timesteps):
         print(n)
         print(n//steps_per_agent)
-        if n//steps_per_agent % 2!=0:
+
+        # Chose the solver with 1/10 of the frequency of the generator.
+        if n//steps_per_agent % 10 == 0:
             train_name = cenv.b_names[1]
             infer_name = cenv.b_names[0]
             print("Training the Solver")
@@ -161,7 +168,8 @@ if __name__=="__main__":
             infer_name = cenv.b_names[1]
             print("Training the Generator")
             continue 
-
+        
+        
         observations = torch.zeros((buffer_size, ) + cenv.observation_shapes[train_name])
         actions = torch.zeros((buffer_size, ) + cenv.action_shapes[train_name])
         rewards = torch.zeros((buffer_size, 1))
@@ -176,6 +184,8 @@ if __name__=="__main__":
         next_values = agents[train_name].get_values(next_obs)
 
         episode_reward = []
+
+        # Fill the rollout buffer
         for step in tqdm.trange(buffer_size):
             observations[step] = next_obs
             values[step] = next_values
@@ -210,7 +220,8 @@ if __name__=="__main__":
                 next_obs = torch.Tensor([cenv.observation[train_name]])  
                 next_values = agents[train_name].get_values(next_obs)
                 episode_reward = []
-                
+        
+        # update the train agent
         agent = agents[train_name]
         with torch.no_grad():
             returns, advantages = get_gae()
@@ -224,4 +235,4 @@ if __name__=="__main__":
         update()
 
         if n%20 == 0:
-            torch.save(agents[train_name].state_dict(), r"Weights/ppo.pt")
+            torch.save(agents[train_name].state_dict(), train_name + r"_Weights/ppo.pt")
